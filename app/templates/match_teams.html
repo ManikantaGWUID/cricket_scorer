@@ -1,0 +1,214 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Teams (Toss + Draft)</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<header><h1>Teams (Toss + Draft)</h1><nav><a href="/logout">Logout</a></nav></header>
+
+<section class="card">
+  <p><b>Match:</b> {{ matchId }}</p>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button id="seedDefault">Seed Default Players</button>
+    <button id="reload">Reload State</button>
+    <a href="/admin/match/{{ matchId }}/toss" style="margin-left:auto;">(Legacy Toss Page)</a>
+  </div>
+  <pre id="playersOut"></pre>
+</section>
+
+<section class="card">
+  <h2>Captains</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr; gap:12px;">
+    <div>
+      <label>Team A Captain</label>
+      <select id="capA"></select>
+    </div>
+    <div>
+      <label>Team B Captain</label>
+      <select id="capB"></select>
+    </div>
+  </div>
+  <button id="saveCaps">Save Captains</button>
+  <div id="capsSaved" style="margin-top:.5rem;"></div>
+</section>
+
+<section class="card">
+  <h2>Coin Toss</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr; gap:12px;">
+    <div>
+      <label>Caller</label>
+      <select id="caller">
+        <option value="teamA">Team A</option>
+        <option value="teamB">Team B</option>
+      </select>
+    </div>
+    <div>
+      <label>Call</label>
+      <select id="call">
+        <option value="heads">Heads</option>
+        <option value="tails">Tails</option>
+      </select>
+    </div>
+    <div style="display:flex; align-items:flex-end;">
+      <button id="flip">Flip Coin</button>
+    </div>
+  </div>
+  <div id="tossResult" style="margin-top:.5rem;"></div>
+</section>
+
+<section class="card">
+  <h2>Draft (Alternate Picks)</h2>
+  <p>Winner of toss picks first. You can stop before 11; click Finish when done.</p>
+
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+    <div>
+      <h3>Available Players</h3>
+      <select id="available" size="12" style="width:100%;"></select>
+      <div style="margin-top:.5rem; display:flex; gap:8px;">
+        <button id="pickA">Pick for Team A</button>
+        <button id="pickB">Pick for Team B</button>
+      </div>
+      <div id="turnNote" style="margin-top:.5rem; font-weight:600;"></div>
+    </div>
+
+    <div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div>
+          <h3>Team A Picks</h3>
+          <ol id="listA"></ol>
+        </div>
+        <div>
+          <h3>Team B Picks</h3>
+          <ol id="listB"></ol>
+        </div>
+      </div>
+      <button id="finish" style="margin-top:1rem;">Finish Draft</button>
+      <div id="finishNote" style="margin-top:.5rem;"></div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Next Step</h2>
+  <p>Go to <a href="/admin/match/{{ matchId }}/toss">Toss</a> (legacy) or straight to <a href="/admin/match/{{ matchId }}/scoring">Scoring</a> when ready.</p>
+</section>
+
+<script>
+const MID='{{ matchId }}';
+
+// --- helpers ---
+async function getJSON(u){ const r=await fetch(u); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+async function postJSON(u,d){ const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+
+function fillSelect(sel, items, valueKey='id', labelKey='name'){
+  sel.innerHTML = '';
+  items.forEach(it => {
+    const o = document.createElement('option');
+    o.value = it[valueKey];
+    o.textContent = it[labelKey] ? `${it[labelKey]} (${it[valueKey]})` : it[valueKey];
+    sel.appendChild(o);
+  });
+}
+
+function renderList(ol, ids, poolMap){
+  ol.innerHTML = '';
+  ids.forEach(id=>{
+    const li=document.createElement('li');
+    li.textContent = poolMap[id]?.name || id;
+    ol.appendChild(li);
+  });
+}
+
+// --- load players + state ---
+let POOL = [];       // [{id,name}]
+let POOL_MAP = {};   // id -> {id,name}
+let STATE = null;    // {draft:{teamA,teamB,next,done}, available:[...], ...}
+
+async function loadPlayers(){
+  POOL = await getJSON('/api/players');
+  POOL_MAP = Object.fromEntries(POOL.map(p=>[p.id,p]));
+  document.getElementById('playersOut').textContent = JSON.stringify(POOL, null, 2);
+  fillSelect(document.getElementById('capA'), POOL);
+  fillSelect(document.getElementById('capB'), POOL);
+}
+
+async function loadState(){
+  STATE = await getJSON(`/api/matches/${MID}/draft/state`);
+  // available
+  fillSelect(document.getElementById('available'), STATE.available);
+  // lists
+  renderList(document.getElementById('listA'), STATE.teamA_picks, POOL_MAP);
+  renderList(document.getElementById('listB'), STATE.teamB_picks, POOL_MAP);
+  // whose turn
+  const n = STATE.draft?.next || 'teamA';
+  document.getElementById('turnNote').textContent = `Turn: ${n.toUpperCase()}`;
+  // enable buttons by turn
+  document.getElementById('pickA').disabled = (n !== 'teamA');
+  document.getElementById('pickB').disabled = (n !== 'teamB');
+  // finish note
+  document.getElementById('finishNote').textContent = STATE.draft?.done ? 'Draft marked done' : '';
+}
+
+document.getElementById('reload').onclick = async ()=>{
+  await loadPlayers();
+  await loadState();
+};
+
+// --- seed default names (your list) ---
+document.getElementById('seedDefault').onclick = async ()=>{
+  const names = [
+    "Binnu","Manikanta","Charan","Raj","Jeet","Bipin","Sandeep","Toshin",
+    "Reddy","Bobby","Mani Sai","Aksh","Divya","Dhruv","Omkar","Vineet"
+  ];
+  await postJSON('/api/players/seed', {names});
+  alert('Default players seeded/updated');
+  await loadPlayers();
+  await loadState();
+};
+
+// --- save captains ---
+document.getElementById('saveCaps').onclick = async ()=>{
+  const a = document.getElementById('capA').value;
+  const b = document.getElementById('capB').value;
+  await postJSON(`/api/matches/${MID}/captains`, {teamA_captain:a, teamB_captain:b});
+  document.getElementById('capsSaved').textContent = `Captains saved: A=${POOL_MAP[a]?.name||a} | B=${POOL_MAP[b]?.name||b}`;
+};
+
+// --- toss ---
+document.getElementById('flip').onclick = async ()=>{
+  const caller = document.getElementById('caller').value; // teamA/teamB
+  const call = document.getElementById('call').value;     // heads/tails
+  const out = await postJSON(`/api/matches/${MID}/toss_coin`, {caller, call});
+  document.getElementById('tossResult').textContent =
+    `Result: ${out.result.toUpperCase()} | Winner: ${out.winner.toUpperCase()} (picks first)`;
+  await loadState();
+};
+
+// --- draft pick ---
+async function doPick(team){
+  const sel = document.getElementById('available');
+  const player = sel.value;
+  if (!player) { alert('Select a player'); return; }
+  await postJSON(`/api/matches/${MID}/draft/pick`, {team, player});
+  await loadState();
+  sel.selectedIndex = -1;
+}
+document.getElementById('pickA').onclick = ()=>doPick('teamA');
+document.getElementById('pickB').onclick = ()=>doPick('teamB');
+
+// --- finish draft ---
+document.getElementById('finish').onclick = async ()=>{
+  await postJSON(`/api/matches/${MID}/draft/finish`, {});
+  await loadState();
+  alert('Draft finished. You can proceed to Scoring.');
+};
+
+// initial load
+(async ()=>{
+  await loadPlayers();
+  await loadState();
+})();
+</script>
+</body></html>

@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scoring Admin</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Scoring Admin</h1>
+    <nav><a href="/logout">Logout</a></nav>
+  </header>
+
+  <section class="card">
+    <h2>Create Match</h2>
+    <form id="createMatch">
+      <input name="teamA" placeholder="Team A" required />
+      <input name="teamB" placeholder="Team B" required />
+      <input name="overs" type="number" min="1" max="50" value="20" />
+      <button>Create</button>
+    </form>
+    <p id="newMatch"></p>
+  </section>
+
+  <section class="card">
+    <h2>Set Toss</h2>
+    <form id="setToss">
+      <input name="matchId" placeholder="Match ID" required />
+      <input name="winner" placeholder="Winner (Team A/B name)" required />
+      <select name="decision">
+        <option value="bat">Bat</option>
+        <option value="bowl">Bowl</option>
+      </select>
+      <button>Update Toss & Go Live</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Record Ball</h2>
+    <form id="ballForm">
+      <input name="matchId" placeholder="Match ID" required />
+      <input name="innings" type="number" min="1" max="2" value="1" />
+      <input name="over" type="number" min="0" value="0" />
+      <input name="ball_in_over" type="number" min="1" max="6" value="1" />
+      <input name="runs" type="number" min="0" max="6" value="0" />
+      <select name="extra">
+        <option value="">(none)</option>
+        <option value="wide">wide</option>
+        <option value="no-ball">no-ball</option>
+        <option value="bye">bye</option>
+        <option value="leg-bye">leg-bye</option>
+      </select>
+      <input name="wicket_kind" placeholder="wicket kind (optional)" />
+      <input name="player_out" placeholder="player out (optional)" />
+      <input name="commentary" placeholder="commentary (optional)" />
+      <button>Submit Ball</button>
+    </form>
+    <pre id="scoreOut"></pre>
+  </section>
+
+  <section class="card">
+    <h2>Switch Innings</h2>
+    <form id="switchInnings">
+      <input name="matchId" placeholder="Match ID" required />
+      <select name="to_innings">
+        <option value="1">1</option>
+        <option value="2">2</option>
+      </select>
+      <button>Switch</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Complete Match</h2>
+    <form id="complete">
+      <input name="matchId" placeholder="Match ID" required />
+      <button>Complete Match</button>
+    </form>
+  </section>
+
+<script>
+async function postJSON(url, data) {
+  const res = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+const createMatch = document.getElementById('createMatch');
+createMatch?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const payload = { teamA: f.teamA.value, teamB: f.teamB.value, overs_per_innings: parseInt(f.overs.value) };
+  const out = await postJSON('/api/matches', payload);
+  document.getElementById('newMatch').textContent = 'Match ID: ' + out.matchId;
+});
+
+const setToss = document.getElementById('setToss');
+setToss?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  await postJSON(`/api/matches/${f.matchId.value}/toss`, {winner: f.winner.value, decision: f.decision.value});
+  alert('Toss set & live');
+});
+
+const ballForm = document.getElementById('ballForm');
+ballForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const ev = { innings: parseInt(f.innings.value), over: parseInt(f.over.value), ball_in_over: parseInt(f.ball_in_over.value), runs: parseInt(f.runs.value), extra: f.extra.value || null, wicket_kind: f.wicket_kind.value || null, player_out: f.player_out.value || null, commentary: f.commentary.value || null };
+  const out = await postJSON(`/api/matches/${f.matchId.value}/ball`, ev);
+  document.getElementById('scoreOut').textContent = JSON.stringify(out.score, null, 2);
+});
+
+const switchInnings = document.getElementById('switchInnings');
+switchInnings?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const out = await postJSON(`/api/matches/${f.matchId.value}/switch_innings`, {to_innings: parseInt(f.to_innings.value)});
+  alert('Now innings ' + out.current_innings + (out.target ? (' | Target: ' + out.target) : ''));
+});
+
+const complete = document.getElementById('complete');
+complete?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  await postJSON(`/api/matches/${f.matchId.value}/complete`, {});
+  alert('Match completed');
+});
+</script>
+</body>
+</html>

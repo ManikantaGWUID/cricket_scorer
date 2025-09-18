@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+jinja2
+python-dotenv
+itsdangerous
+firebase-admin
+pydantic
+python-multipart

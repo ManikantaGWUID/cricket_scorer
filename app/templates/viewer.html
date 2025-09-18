@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Live Score</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="card">
+    <h1>Live Score</h1>
+    <p>Provide a matchId in the URL: <code>?matchId=ABC123</code></p>
+    <div id="info"></div>
+    <h2 id="teams"></h2>
+    <h3 id="status"></h3>
+    <div id="scores"></div>
+    <div id="target"></div>
+
+    <h3>Batting Scorecard – Innings 1</h3>
+    <table id="vbat1" border="1" cellpadding="6" style="width:100%; border-collapse:collapse;">
+      <thead><tr><th>Player</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>Out</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Batting Scorecard – Innings 2</h3>
+    <table id="vbat2" border="1" cellpadding="6" style="width:100%; border-collapse:collapse;">
+      <thead><tr><th>Player</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>Out</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Firebase v9 modular SDK -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js'
+    import { getFirestore, doc, onSnapshot, getDocs, collection } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js'
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const params = new URLSearchParams(location.search);
+    const matchId = params.get('matchId');
+    document.getElementById('info').textContent = matchId ? '' : 'No matchId provided';
+
+    let POOL_MAP = {};
+    async function loadPlayers(){
+      const snap = await getDocs(collection(db, 'players'));
+      snap.forEach(d => POOL_MAP[d.id] = d.data());
+    }
+    function nameOf(id){ return (POOL_MAP[id]?.name) || id; }
+
+    function renderBat(tableId, batting){
+      const tbody = document.querySelector(`#${tableId} tbody`);
+      tbody.innerHTML = '';
+      Object.keys(batting || {}).forEach(id=>{
+        const b = batting[id];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${nameOf(id)}</td>
+          <td>${b.runs}</td>
+          <td>${b.balls}</td>
+          <td>${b.fours}</td>
+          <td>${b.sixes}</td>
+          <td>${b.out ? 'Yes' : 'No'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    if (matchId) {
+      await loadPlayers();
+      const ref = doc(db, 'matches', matchId);
+      onSnapshot(ref, (snap) => {
+        if (!snap.exists()) { document.getElementById('info').textContent = 'Match not found'; return; }
+        const m = snap.data();
+        document.getElementById('teams').textContent = `${m.teamA} vs ${m.teamB}`;
+        document.getElementById('status').textContent = `Status: ${m.status} | Innings: ${m.current_innings}`;
+        const s1 = m.score["1"], s2 = m.score["2"];
+        const scores = [
+          `1st Inn: ${s1.runs}/${s1.wickets} (${s1.overs})`,
+          `2nd Inn: ${s2.runs}/${s2.wickets} (${s2.overs})`
+        ].join('<br/>');
+        document.getElementById('scores').innerHTML = scores;
+        document.getElementById('target').textContent = m.target ? `Target: ${m.target}` : '';
+
+        const sc = m.scorecards || {};
+        renderBat('vbat1', sc["1"]?.batting || {});
+        renderBat('vbat2', sc["2"]?.batting || {});
+      });
+    }
+  </script>
+</body>
+
+</html>

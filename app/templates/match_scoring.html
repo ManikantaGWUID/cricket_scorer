@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Scoring</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<header><h1>Scoring</h1><nav><a href="/logout">Logout</a></nav></header>
+
+<section class="card">
+  <p><b>Match:</b> {{ matchId }}</p>
+  <p id="scoreLine" style="font-weight:700;"></p>
+  <p id="currentLine"></p>
+</section>
+
+<section class="card">
+  <h2>Set Openers & Bowler</h2>
+  <form id="openers">
+    <label>Innings</label>
+    <select name="innings"><option>1</option><option>2</option></select>
+    <label>Striker</label><input name="striker" placeholder="playerId" required />
+    <label>Non-Striker</label><input name="non_striker" placeholder="playerId" required />
+    <label>Bowler</label><input name="bowler" placeholder="playerId" required />
+    <button>Start Innings</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Ball Scoring Panel</h2>
+  <div id="ballPanel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+    <button data-type="run" data-val="0">0</button>
+    <button data-type="run" data-val="1">1</button>
+    <button data-type="run" data-val="2">2</button>
+    <button data-type="run" data-val="3">3</button>
+    <button data-type="run" data-val="4">4</button>
+    <button data-type="run" data-val="6">6</button>
+    <button data-type="extra" data-val="wide">Wide</button>
+    <button data-type="extra" data-val="no-ball">No Ball</button>
+    <button data-type="extra" data-val="bye">Bye</button>
+    <button data-type="extra" data-val="leg-bye">Leg Bye</button>
+    <button data-type="wicket" data-val="bowled">Wicket (Bowled)</button>
+    <button data-type="wicket" data-val="caught">Wicket (Caught)</button>
+    <button data-type="wicket" data-val="runout">Wicket (Run Out)</button>
+    <button data-type="undo" style="grid-column: span 2; background:#f55;color:#fff;">Undo Last</button>
+  </div>
+  <pre id="state" style="margin-top:10px;"></pre>
+</section>
+
+<section id="nextOverBox" class="card" style="display:none;">
+  <h2>Over Complete — Choose Next Bowler</h2>
+  <form id="nextBowlerForm">
+    <label>Next Bowler</label>
+    <select id="nextBowler"></select>
+    <button>Set Bowler</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Batting Scorecard (Innings 1)</h2>
+  <table id="bat1" border="1" cellpadding="6" style="width:100%; border-collapse:collapse;">
+    <thead><tr><th>Player</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>Out</th><th>How</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Batting Scorecard (Innings 2)</h2>
+  <table id="bat2" border="1" cellpadding="6" style="width:100%; border-collapse:collapse;">
+    <thead><tr><th>Player</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>Out</th><th>How</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Bowling Scorecard (Innings 1)</h2>
+  <table id="bowl1" border="1" cellpadding="6" style="width:100%; border-collapse:collapse;">
+    <thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Bowling Scorecard (Innings 2)</h2>
+  <table id="bowl2" border="1" cellpadding="6" style="width:100%; border-collapse:collapse;">
+    <thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<script>
+const MID='{{ matchId }}';
+
+async function getJSON(u){ const r=await fetch(u); if(!r.ok){ throw new Error(await r.text()); } return r.json(); }
+async function postJSON(u,d){ const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(!r.ok){ throw new Error(await r.text()); } return r.json(); }
+
+let CURRENT_INNINGS = 1;
+let POOL_MAP = {};
+
+async function loadPoolMap(){
+  const pool = await getJSON('/api/players');
+  POOL_MAP = Object.fromEntries(pool.map(p=>[p.id, p]));
+}
+function nameOf(id){ return POOL_MAP[id]?.name || id || '-'; }
+
+function renderBatTable(tableId, batting){
+  const tbody = document.querySelector(`#${tableId} tbody`);
+  tbody.innerHTML = '';
+  Object.keys(batting || {}).forEach(id=>{
+    const b = batting[id];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${nameOf(id)}</td>
+      <td>${b.runs ?? 0}</td>
+      <td>${b.balls ?? 0}</td>
+      <td>${b.fours ?? 0}</td>
+      <td>${b.sixes ?? 0}</td>
+      <td>${b.out ? 'Yes' : 'No'}</td>
+      <td>${b.how_out || ''}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderBowlTable(tableId, bowling){
+  const tbody = document.querySelector(`#${tableId} tbody`);
+  tbody.innerHTML = '';
+  Object.keys(bowling || {}).forEach(id=>{
+    const b = bowling[id];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${nameOf(id)}</td>
+      <td>${b.overs || '0.0'}</td>
+      <td>${b.maidens ?? 0}</td>
+      <td>${b.runs ?? 0}</td>
+      <td>${b.wickets ?? 0}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function refresh(){
+  const m = await getJSON(`/api/matches/${MID}`);
+  CURRENT_INNINGS = m.current_innings || 1;
+  const s = m.score[String(CURRENT_INNINGS)] || {runs:0,wickets:0,overs:"0.0"};
+
+  document.getElementById('scoreLine').textContent =
+    `Innings ${CURRENT_INNINGS}: ${s.runs}/${s.wickets} (${s.overs})`;
+
+  const cur = m.current || {};
+  document.getElementById('currentLine').innerHTML =
+    `Striker: <b>${nameOf(cur.striker)}</b> | Non-Striker: <b>${nameOf(cur.non_striker)}</b> | Bowler: <b>${nameOf(cur.bowler) || '(choose next)'}</b> | Over: ${cur.over || 0}.${cur.ball_in_over || 0}`;
+
+  // batting cards
+  const bat1 = await getJSON(`/api/matches/${MID}/scorecard/batting?innings=1`);
+  const bat2 = await getJSON(`/api/matches/${MID}/scorecard/batting?innings=2`);
+  renderBatTable('bat1', bat1);
+  renderBatTable('bat2', bat2);
+
+  // bowling cards
+  const bowl1 = await getJSON(`/api/matches/${MID}/scorecard/bowling?innings=1`);
+  const bowl2 = await getJSON(`/api/matches/${MID}/scorecard/bowling?innings=2`);
+  renderBowlTable('bowl1', bowl1);
+  renderBowlTable('bowl2', bowl2);
+
+  // If there is no current bowler (over ended), show the next-bowler box
+  const needNext = !cur.bowler && (cur.ball_in_over === 0); // after over end
+  document.getElementById('nextOverBox').style.display = needNext ? 'block' : 'none';
+  if (needNext) {
+    const choices = await getJSON(`/api/matches/${MID}/available_bowlers?innings=${CURRENT_INNINGS}`);
+    const sel = document.getElementById('nextBowler');
+    sel.innerHTML = '';
+    choices.forEach(id=>{
+      const o=document.createElement('option');
+      o.value=id; o.textContent=nameOf(id);
+      sel.appendChild(o);
+    });
+  }
+}
+
+// Openers
+document.getElementById('openers').onsubmit = async (e)=>{
+  e.preventDefault();
+  const f = e.target;
+  const p = { innings: parseInt(f.innings.value), striker: f.striker.value, non_striker: f.non_striker.value, bowler: f.bowler.value };
+  await postJSON(`/api/matches/${MID}/openers`, p);
+  await refresh();
+  alert('Innings started');
+};
+
+// Ball panel
+const panel = document.getElementById('ballPanel');
+panel.addEventListener('click', async (e) => {
+  if (e.target.tagName !== 'BUTTON') return;
+  const type = e.target.dataset.type;
+  const val = e.target.dataset.val;
+
+  if (type === 'undo') { alert("Undo not implemented yet."); return; }
+
+  const payload = { innings: CURRENT_INNINGS, runs: 0, extra: null, wicket_kind: null, player_out: null };
+
+  if (type === 'run') {
+    payload.runs = parseInt(val);
+  } else if (type === 'extra') {
+    payload.extra = val;
+  } else if (type === 'wicket') {
+    payload.wicket_kind = val;
+    const who = prompt("Enter playerId of out batter (striker/non-striker id):");
+    if (!who) return;
+    payload.player_out = who;
+  }
+
+  const out = await postJSON(`/api/matches/${MID}/ball_auto`, payload);
+  document.getElementById('state').textContent = JSON.stringify(out, null, 2);
+
+  await refresh();
+
+  // After over ended, the nextOverBox becomes visible & prefilled
+});
+
+// Next bowler
+document.getElementById('nextBowlerForm').onsubmit = async (e)=>{
+  e.preventDefault();
+  const id = document.getElementById('nextBowler').value;
+  if (!id) return;
+  await postJSON(`/api/matches/${MID}/change_bowler`, {bowler: id});
+  document.getElementById('nextOverBox').style.display = 'none';
+  await refresh();
+};
+
+// Initial
+(async ()=>{
+  await loadPoolMap();
+  await refresh();
+})();
+</script>
+</body>
+</html>
+

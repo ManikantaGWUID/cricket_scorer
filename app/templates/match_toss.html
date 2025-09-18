@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Toss</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<header><h1>Toss</h1><nav><a href="/logout">Logout</a></nav></header>
+
+<section class="card">
+  <p><b>Match:</b> {{ matchId }}</p>
+  <form id="toss">
+    <input name="winner" placeholder="Winner team name (exact)" required />
+    <select name="decision"><option value="bat">Bat</option><option value="bowl">Bowl</option></select>
+    <button>Set Toss</button>
+  </form>
+  <p id="next"></p>
+</section>
+
+<script>
+const MID='{{ matchId }}';
+async function postJSON(u,d){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});if(!r.ok)throw new Error(await r.text());return r.json();}
+const f=document.getElementById('toss');
+f.onsubmit = async (e)=>{
+  e.preventDefault();
+  const p = { winner: f.winner.value, decision: f.decision.value };
+  await postJSON(`/api/matches/${MID}/toss`, p);
+  document.getElementById('next').innerHTML = `Continue → <a href="/admin/match/${MID}/scoring">Scoring</a>`;
+};
+</script>
+</body></html>
